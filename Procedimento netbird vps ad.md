@@ -7,12 +7,12 @@
 ## Visão geral da arquitetura
 
 ```
-┌─────────────────────┐         ┌──────────────────────┐
-│   serversat          │◄───────►│   NetBird Cloud        │
-│   (AD principal)      │  túnel  │   (gerenciamento)      │
-│   192.168.1.100       │  P2P    │                        │
-│   IP NetBird: 100.78.25.61      └──────────────────────┘
-└──────────┬───────────┘                    ▲
+┌───────────────────────┐          ┌────────────────────┐
+│   serversat           │ ◄───────►│   NetBird Cloud    │
+│   (AD principal)      │  túnel   │   (gerenciamento)  │
+│   192.168.1.100       │  P2P     │                    │
+│IP NetBird: 100.78.25.61          └────────────────────┘
+└──────────┬────────────┘                    ▲
            │ Rota de rede                    │ túnel P2P
            │ 192.168.1.0/24                  │
            ▼                                 │
