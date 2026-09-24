@@ -82,18 +82,18 @@ Sem isso, qualquer reinício da VPS pode deixar o NetBird desconectado, e como o
 ### 4. Apontar o DNS da VPS para o AD
 
 ```powershell
-Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses "192.168.1.100"
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses "100.78.25.61"
 ipconfig /flushdns
 ```
 
-> ⚠️ **Nunca deixe um IP de rede local incorreto ou "de fábrica" configurado aqui** (ex.: `192.168.1.100` de outra rede, resíduo de configuração padrão da VPS). Confirme com `Get-DnsClientServerAddress` que o valor realmente corresponde ao AD antes de seguir — foi essa configuração errada que causou a maior parte dos timeouts em VPS anteriores.
+> ⚠️ **Use o IP do `serversat` na malha NetBird (`100.78.25.61`), não o IP local do AD (`192.168.1.100`).** Em teoria, apontar para `192.168.1.100` deveria funcionar via a rota de rede `192.168.1.0/24` publicada pelo `serversat` — mas, na prática, isso só funciona se essa rota estiver habilitada e no grupo certo para aquela VPS específica. Na `vmi1484408` a rota não estava alcançando a VPS e `192.168.1.100` deu timeout total; `100.78.25.61` resolveu de primeira. Se quiser usar `192.168.1.100` no futuro, confirme antes no painel NetBird (Network Routes) que a rota está habilitada e inclui o grupo dessa VPS — enquanto isso não for validado, use o IP NetBird do `serversat` diretamente.
 
 ### 5. Validar antes de prosseguir (não pule esta etapa)
 
 ```powershell
 nslookup REDE.COM
 nslookup app.netbird.io
-ping 192.168.1.100
+ping 100.78.25.61
 netbird status
 ```
 
@@ -109,7 +109,7 @@ Espera-se:
 > netbird up
 > netbird status
 > ```
-> Assim que `Management: Connected`, volte o DNS para `192.168.1.100` (passo 4) e valide de novo.
+> Assim que `Management: Connected`, volte o DNS para `100.78.25.61` (passo 4) e valide de novo.
 
 ### 6. Ingressar a VPS no domínio
 
@@ -220,7 +220,7 @@ Opção centralizada (recomendada para 30+ VPS): já coberta pelo passo 8 — a 
 - [ ] Instalar o cliente NetBird
 - [ ] `netbird up --setup-key SUA-SETUP-KEY`
 - [ ] `Set-Service netbird -StartupType Automatic`
-- [ ] DNS → IP do AD (`192.168.1.100`)
+- [ ] DNS → IP do `serversat` na malha NetBird (`100.78.25.61`) — não o IP local `192.168.1.100`, salvo rota de rede confirmada
 - [ ] Validar `nslookup` + `ping` + `netbird status`
 - [ ] `Add-Computer -DomainName "REDE.COM"`
 - [ ] Confirmar `CsDomain` após reboot + `Test-ComputerSecureChannel` (`-Repair` ou reingresso forçado se necessário)
