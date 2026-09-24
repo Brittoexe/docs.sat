@@ -71,22 +71,40 @@ netbird up --management-url https://api.netbird.io:443 --setup-key SUA-SETUP-KEY
 
 Confirme no painel do NetBird (app.netbird.io → Peers) que a VPS aparece conectada.
 
-### 3. Deixar o NetBird conectando sozinho após reboot
+### 3. Deixar o NetBird conectando sozinho após reboot ou queda
 
 ```powershell
 Set-Service netbird -StartupType Automatic
+sc.exe failure netbird reset= 86400 actions= restart/60000/restart/60000/restart/60000
 ```
 
-Sem isso, qualquer reinício da VPS pode deixar o NetBird desconectado, e como o DNS depende do túnel, a máquina perde resolução de nomes até alguém entrar e reconectar manualmente.
+O primeiro comando garante que o serviço suba junto com o Windows. O segundo garante que, se o serviço cair por qualquer motivo (não só reboot), o Windows tenta reiniciá-lo automaticamente até 3 vezes, esperando 60s entre tentativas — sem isso, uma queda do NetBird exige alguém entrar manualmente para reconectar.
 
-### 4. Apontar o DNS da VPS para o AD
+### 4. Apontar o DNS da VPS para o AD — **sempre com DNS duplo**
+
+> ⚠️ **Antes de rodar o comando abaixo, confirme o nome real da interface de rede.** O nome `"Ethernet"` é só um exemplo — ele varia por VPS/provedor (já vimos `Ethernet`, `Ethernet 2`, etc.). Rodar o comando com o nome errado dá o erro:
+> ```
+> Set-DnsClientServerAddress : Nenhum objeto MSFT_DNSClientServerAddress encontrado com a propriedade
+> 'InterfaceAlias' igual a 'Ethernet'.
+> ```
+> Para descobrir o nome certo:
+> ```powershell
+> Get-DnsClientServerAddress
+> ```
+> ou, para ver junto o tipo/fabricante de cada placa:
+> ```powershell
+> Get-NetAdapter
+> ```
+> Ignore a interface `wt0` (ou similar) — essa é o túnel virtual do próprio NetBird (`WireGuard Tunnel`), não a placa de rede física. Pegue o nome exato (coluna `InterfaceAlias`/`Name`) da placa de rede real da VPS — normalmente a que já aparece com IP/DNS preenchido no `Get-DnsClientServerAddress`, ou com descrição de fabricante (ex.: `Red Hat VirtIO Ethernet Adapter`) no `Get-NetAdapter`. Use esse nome exato no lugar de `"Ethernet"` no comando abaixo.
 
 ```powershell
-Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses "100.78.25.61"
+Set-DnsClientServerAddress -InterfaceAlias "Ethernet" -ServerAddresses "100.78.25.61","1.1.1.1"
 ipconfig /flushdns
 ```
 
-> ⚠️ **Use o IP do `serversat` na malha NetBird (`100.78.25.61`), não o IP local do AD (`192.168.1.100`).** Em teoria, apontar para `192.168.1.100` deveria funcionar via a rota de rede `192.168.1.0/24` publicada pelo `serversat` — mas, na prática, isso só funciona se essa rota estiver habilitada e no grupo certo para aquela VPS específica. Na `vmi1484408` a rota não estava alcançando a VPS e `192.168.1.100` deu timeout total; `100.78.25.61` resolveu de primeira. Se quiser usar `192.168.1.100` no futuro, confirme antes no painel NetBird (Network Routes) que a rota está habilitada e inclui o grupo dessa VPS — enquanto isso não for validado, use o IP NetBird do `serversat` diretamente.
+> ⚠️ **Sempre configure DNS duplo desde o primeiro dia** — `100.78.25.61` (serversat, via NetBird) como primário e `1.1.1.1` como secundário. Se o NetBird cair por qualquer motivo, o Windows recorre automaticamente ao segundo DNS, evitando o catch-22 onde a VPS não consegue resolver nem o endereço do management do NetBird para reconectar sozinha (`context deadline exceeded` no `netbird up`). Configurar só um DNS interno é a causa raiz mais comum desse erro.
+>
+> **Use o IP do `serversat` na malha NetBird (`100.78.25.61`), não o IP local do AD (`192.168.1.100`).** Em teoria, apontar para `192.168.1.100` deveria funcionar via a rota de rede `192.168.1.0/24` publicada pelo `serversat` — mas, na prática, isso só funciona se essa rota estiver habilitada e no grupo certo para aquela VPS específica. Na `vmi1484408` a rota não estava alcançando a VPS e `192.168.1.100` deu timeout total; `100.78.25.61` resolveu de primeira. Se quiser usar `192.168.1.100` no futuro, confirme antes no painel NetBird (Network Routes) que a rota está habilitada e inclui o grupo dessa VPS — enquanto isso não for validado, use o IP NetBird do `serversat` diretamente.
 
 ### 5. Validar antes de prosseguir (não pule esta etapa)
 
@@ -109,7 +127,7 @@ Espera-se:
 > netbird up
 > netbird status
 > ```
-> Assim que `Management: Connected`, volte o DNS para `100.78.25.61` (passo 4) e valide de novo.
+> Assim que `Management: Connected`, volte o DNS para o par duplo `100.78.25.61`,`1.1.1.1` (passo 4) e valide de novo. Se essa VPS já estava com DNS duplo configurado desde o início, esse problema não deveria ocorrer — revise o passo 4 se ele se repetir.
 
 ### 6. Ingressar a VPS no domínio
 
@@ -203,6 +221,7 @@ Opção centralizada (recomendada para 30+ VPS): já coberta pelo passo 8 — a 
 
 | Sintoma | Causa provável | Solução |
 |---|---|---|
+| `Set-DnsClientServerAddress` falha com "Nenhum objeto... encontrado com a propriedade 'InterfaceAlias'" | Nome da interface (`"Ethernet"`) não existe nessa VPS — varia por provedor | Rodar `Get-DnsClientServerAddress` ou `Get-NetAdapter`, pegar o nome real da placa física (ignorar `wt0`, que é o túnel do NetBird) |
 | `netbird up` trava com `DeadlineExceeded` | DNS da VPS não resolve `api.netbird.io` (geralmente porque já aponta só para o AD, sem fallback) | Trocar DNS temporariamente para `8.8.8.8`/`1.1.1.1`, reconectar o NetBird, depois voltar para o DNS do AD |
 | Interface `wt0` desaparece / `Management: Disconnected` depois de um reboot | Serviço `netbird` não subiu automático, ou o DNS ficou preso no AD antes do túnel subir | `Set-Service netbird -StartupType Automatic`; se já caiu, usar a correção de DNS temporário acima |
 | `Add-Computer` falha com "servidor não pode executar a operação" | DNS não está resolvendo os registros SRV do AD (`_ldap._tcp.dc._msdcs.REDE.COM`) | Confirmar `Set-DnsClientServerAddress` para o IP do AD antes de tentar o join |
@@ -220,7 +239,9 @@ Opção centralizada (recomendada para 30+ VPS): já coberta pelo passo 8 — a 
 - [ ] Instalar o cliente NetBird
 - [ ] `netbird up --setup-key SUA-SETUP-KEY`
 - [ ] `Set-Service netbird -StartupType Automatic`
-- [ ] DNS → IP do `serversat` na malha NetBird (`100.78.25.61`) — não o IP local `192.168.1.100`, salvo rota de rede confirmada
+- [ ] Confirmar o nome real da interface de rede (`Get-NetAdapter`, ignorando `wt0`) antes de configurar o DNS
+- [ ] DNS duplo: `100.78.25.61` (serversat via NetBird) + `1.1.1.1` (fallback público) — nunca só um DNS interno; e não usar `192.168.1.100` salvo rota de rede confirmada
+- [ ] Configurar auto-restart do serviço `netbird` (`sc.exe failure netbird ...`)
 - [ ] Validar `nslookup` + `ping` + `netbird status`
 - [ ] `Add-Computer -DomainName "REDE.COM"`
 - [ ] Confirmar `CsDomain` após reboot + `Test-ComputerSecureChannel` (`-Repair` ou reingresso forçado se necessário)
